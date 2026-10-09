@@ -7,7 +7,7 @@ import anthropic
 
 app = Flask(__name__)
 
-TARGET_URL = "http://er.hhdzcesc.com:34470"
+TARGET_URL = "http://frp-ger.hhdzcesc.com:34470/#/dashboard"
 
 @app.route("/sms", methods=["POST"])
 def sms_reply():
