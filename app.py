@@ -17,12 +17,10 @@ def sms_reply():
 
     if "kw" in incoming_msg or "status" in incoming_msg or "bess" in incoming_msg:
         try:
-            # 1. Scraper la page du BESS
             response = requests.get(TARGET_URL, timeout=10)
             soup = BeautifulSoup(response.text, 'html.parser')
             page_text = soup.get_text(separator=' ', strip=True)
 
-            # 2. Interroger l'API Claude
             client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
             message = client.messages.create(
                 model="claude-3-5-sonnet-20241022",
