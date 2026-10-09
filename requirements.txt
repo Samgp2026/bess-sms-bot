@@ -1,5 +1,6 @@
 flask
 requests
+beautifulsoup4
 twilio
 anthropic
 gunicorn
