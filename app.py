@@ -26,8 +26,8 @@ def whatsapp_reply():
     if "kw" in incoming_msg or "status" in incoming_msg or "bess" in incoming_msg:
         try:
             full_text = scrape_bess_data()
-            # WhatsApp prend en charge les messages plus longs et le formatage *Gras*
-            msg.body(f"📊 *Statut BESS BESS* :\n\n{full_text[:500]}")
+            # Envoi du statut au format WhatsApp
+            msg.body(f"📊 *Statut BESS* :\n\n{full_text[:500]}")
         except Exception as e:
             msg.body(f"❌ Erreur lors du scan BESS: {str(e)}")
     else:
