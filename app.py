@@ -5,8 +5,8 @@ from twilio.twiml.messaging_response import MessagingResponse
 
 app = Flask(__name__)
 
-# URL directe de l'API BESS ou du tableau de bord
-BESS_URL = "http://frp-ger.hhdzcesc.com:34470"
+# URL de base du serveur BESS
+BASE_URL = "http://frp-ger.hhdzcesc.com:34470"
 
 @app.route("/sms", methods=['POST'])
 def sms_reply():
@@ -16,20 +16,38 @@ def sms_reply():
 
     if "kw" in incoming_msg or "status" in incoming_msg or "bess" in incoming_msg:
         try:
-            # Tente de récupérer les données via endpoint JSON ou la page brute
-            headers = {"User-Agent": "Mozilla/5.0"}
-            response = requests.get(f"{BESS_URL}/#/dashboard", headers=headers, timeout=10)
+            # Endpoints d'API courants pour les dashboards EMS / BESS
+            endpoints = [
+                f"{BASE_URL}/api/getdata",
+                f"{BASE_URL}/api/dashboard",
+                f"{BASE_URL}/api/status",
+                f"{BASE_URL}/api/v1/bess/status",
+                f"{BASE_URL}/data"
+            ]
             
-            # Si le backend répond avec du texte ou du JSON
-            content = response.text
-            
-            # Nettoyage rapide pour afficher un résumé exploitable
-            clean_text = " ".join(content.split())
-            msg.body(f"BESS Data: {clean_text[:150]}")
+            data_found = None
+            headers = {"Accept": "application/json", "User-Agent": "Mozilla/5.0"}
+
+            for url in endpoints:
+                try:
+                    res = requests.get(url, headers=headers, timeout=3)
+                    if res.status_code == 200 and "json" in res.headers.get("Content-Type", ""):
+                        data_found = res.json()
+                        break
+                except Exception:
+                    continue
+
+            if data_found:
+                # Extrait et formate les données sous forme lisible
+                info_str = str(data_found)[:140]
+                msg.body(f"BESS Statut: {info_str}")
+            else:
+                msg.body("BESS accessible, mais requête API à affiner. Envoyez 'kw' à nouveau.")
+
         except Exception as e:
-            msg.body(f"Erreur BESS: {str(e)}")
+            msg.body(f"Erreur connexion BESS: {str(e)}")
     else:
-        msg.body("Envoyez 'kw' pour recevoir le statut BESS.")
+        msg.body("Envoyez 'kw' pour recevoir le statut du BESS.")
 
     return str(resp)
 
