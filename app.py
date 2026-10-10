@@ -1,12 +1,12 @@
 import os
+import requests
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
-import requests
-from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 
-TARGET_URL = "http://frp-ger.hhdzcesc.com:34470/#/dashboard"
+# URL directe de l'API BESS ou du tableau de bord
+BESS_URL = "http://frp-ger.hhdzcesc.com:34470"
 
 @app.route("/sms", methods=['POST'])
 def sms_reply():
@@ -16,13 +16,16 @@ def sms_reply():
 
     if "kw" in incoming_msg or "status" in incoming_msg or "bess" in incoming_msg:
         try:
-            # Récupération des données du BESS
-            response = requests.get(TARGET_URL, timeout=10)
-            soup = BeautifulSoup(response.text, 'html.parser')
-            page_text = soup.get_text(separator=' ', strip=True)
-
-            # Envoi direct des données extraites par SMS (limité à 160 caractères)
-            msg.body(f"Statut BESS: {page_text[:140]}")
+            # Tente de récupérer les données via endpoint JSON ou la page brute
+            headers = {"User-Agent": "Mozilla/5.0"}
+            response = requests.get(f"{BESS_URL}/#/dashboard", headers=headers, timeout=10)
+            
+            # Si le backend répond avec du texte ou du JSON
+            content = response.text
+            
+            # Nettoyage rapide pour afficher un résumé exploitable
+            clean_text = " ".join(content.split())
+            msg.body(f"BESS Data: {clean_text[:150]}")
         except Exception as e:
             msg.body(f"Erreur BESS: {str(e)}")
     else:
