@@ -2,5 +2,6 @@ flask
 requests
 beautifulsoup4
 twilio
+playwright
 anthropic
 gunicorn
