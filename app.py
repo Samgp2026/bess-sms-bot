@@ -1,12 +1,32 @@
 import os
-import requests
+import re
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
+from playwright.sync_api import sync_playwright
 
 app = Flask(__name__)
 
-# URL de base du serveur BESS
-BASE_URL = "http://frp-ger.hhdzcesc.com:34470"
+BESS_URL = "http://frp-ger.hhdzcesc.com:34470/#/dashboard"
+
+def scrape_bess_data():
+    with sync_playwright() as p:
+        # Lancement du navigateur léger
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        
+        # Navigation vers le tableau de bord BESS
+        page.goto(BESS_URL, timeout=30000)
+        
+        # Attente de 5 secondes pour laisser le temps au JavaScript de charger les valeurs
+        page.wait_for_timeout(5000)
+        
+        # Extraction de tout le texte visible à l'écran
+        body_text = page.inner_text("body")
+        browser.close()
+        
+        # Nettoyage des retours à la ligne
+        clean_text = " ".join(body_text.split())
+        return clean_text
 
 @app.route("/sms", methods=['POST'])
 def sms_reply():
@@ -16,38 +36,16 @@ def sms_reply():
 
     if "kw" in incoming_msg or "status" in incoming_msg or "bess" in incoming_msg:
         try:
-            # Endpoints d'API courants pour les dashboards EMS / BESS
-            endpoints = [
-                f"{BASE_URL}/api/getdata",
-                f"{BASE_URL}/api/dashboard",
-                f"{BASE_URL}/api/status",
-                f"{BASE_URL}/api/v1/bess/status",
-                f"{BASE_URL}/data"
-            ]
+            full_text = scrape_bess_data()
             
-            data_found = None
-            headers = {"Accept": "application/json", "User-Agent": "Mozilla/5.0"}
-
-            for url in endpoints:
-                try:
-                    res = requests.get(url, headers=headers, timeout=3)
-                    if res.status_code == 200 and "json" in res.headers.get("Content-Type", ""):
-                        data_found = res.json()
-                        break
-                except Exception:
-                    continue
-
-            if data_found:
-                # Extrait et formate les données sous forme lisible
-                info_str = str(data_found)[:140]
-                msg.body(f"BESS Statut: {info_str}")
-            else:
-                msg.body("BESS accessible, mais requête API à affiner. Envoyez 'kw' à nouveau.")
-
+            # Recherche de motifs fréquents (kW, kWh, %, SOC)
+            # On envoie les 150 premiers caractères du contenu capturé
+            msg.body(f"BESS Scan: {full_text[:150]}")
+            
         except Exception as e:
-            msg.body(f"Erreur connexion BESS: {str(e)}")
+            msg.body(f"Erreur lors du scan BESS: {str(e)}")
     else:
-        msg.body("Envoyez 'kw' pour recevoir le statut du BESS.")
+        msg.body("Envoyez 'kw' pour recevoir le statut BESS.")
 
     return str(resp)
 
