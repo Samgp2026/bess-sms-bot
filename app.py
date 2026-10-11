@@ -84,10 +84,10 @@ def scrape_and_send(to_number):
 
         try:
             value = get_real_bess_value()
-            message = f"La capacité cumulée de décharge est : {value}"
+            message = f"Die Ausgangsleistung der Batterie beträgt: {value}"
         except Exception as exc:
             app.logger.exception("Échec de lecture du tableau de bord")
-            message = f"Impossible de lire la valeur du site : {exc}"
+            message = f"Der Wert kann nicht gelesen werden : {exc}"
 
         client.messages.create(
             body=message,
@@ -96,7 +96,7 @@ def scrape_and_send(to_number):
         )
 
     except Exception:
-        app.logger.exception("Échec de l'envoi du message WhatsApp")
+        app.logger.exception("Senden der WhatsApp-Nachricht fehlgeschlagen")
 
 
 @app.route("/sms", methods=["POST"])
@@ -111,7 +111,7 @@ def whatsapp_reply():
             response.message("Configuration Twilio manquante sur le serveur.")
         else:
             response.message(
-                "Lecture en cours, je vous envoie la valeur dans un instant."
+                "Messung läuft, ich sende Ihnen den Wert in Kürze.."
             )
 
             threading.Thread(
