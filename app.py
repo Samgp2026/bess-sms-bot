@@ -10,7 +10,6 @@ app = Flask(__name__)
 
 BESS_URL = "http://frp-ger.hhdzcesc.com:34470/#/dashboard"
 
-# Vos identifiants Twilio (définis ou récupérés depuis l'environnement)
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 
@@ -28,8 +27,9 @@ def scrape_bess_data():
         )
         page = browser.new_page()
         page.goto(BESS_URL, timeout=30000)
-        page.wait_for_timeout(5000)
+        page.wait_for_timeout(8000) # Temps de chargement de la page
         body_text = page.inner_text("body")
+        print("TEXTE EXTRAIT :", body_text[:300]) # Visible dans les logs de Render
         browser.close()
         return " ".join(body_text.split())
 
@@ -54,10 +54,8 @@ def whatsapp_reply():
     resp = MessagingResponse()
 
     if "kw" in incoming_msg or "status" in incoming_msg or "bess" in incoming_msg:
-        # Réponse immédiate pour éviter le timeout Twilio
         resp.message("⏳ *Analyse du BESS en cours...* Veuillez patienter quelques secondes.")
         
-        # Lancement du scraping en arrière-plan
         if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
             client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
             thread = threading.Thread(target=async_scrape_and_send, args=(from_number, client))
