@@ -43,10 +43,11 @@ def get_real_bess_value():
             page.wait_for_timeout(7000)
 
             # Développer la section contenant les capacités cumulées
+
             page.get_by_text(
-                "Detailed parameters",
-                exact=True
-            ).click(timeout=15000)
+                 "Cumulative Discharging Capacity",
+                 exact=True
+            ).first.wait_for(state="visible", timeout=15000)
 
             # Attendre que le libellé soit visible après le clic
             page.get_by_text(
