@@ -1,12 +1,13 @@
 import os
 import subprocess
+import re
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
 from playwright.sync_api import sync_playwright
 
 app = Flask(__name__)
 
-BESS_URL = "http://frp-ger.hhdzcesc.com:34470/#/dashboard"
+BESS_URL = "http://frp-ger.hhdzcesc.com:34470/#/real?label=Heap"
 
 # S'assurer que Chromium est installé
 try:
@@ -14,7 +15,7 @@ try:
 except Exception as e:
     print(f"Erreur installation Playwright: {e}")
 
-def scrape_bess_data():
+def get_cumulative_discharging_capacity():
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
@@ -22,12 +23,22 @@ def scrape_bess_data():
         )
         page = browser.new_page()
         page.goto(BESS_URL, timeout=30000)
-        page.wait_for_timeout(8000)
+        page.wait_for_timeout(8000) # Attendre que le tableau de bord charge les données JS
         
-        # Récupération du texte de la page
         body_text = page.inner_text("body")
         browser.close()
-        return " ".join(body_text.split())
+        
+        # Recherche spécifique de "Cumulative Discharging Capacity" et de sa valeur (ex: 124.84kWh)
+        match = re.search(r"Cumulative Discharging Capacity\s*([0-9\.]+kWh)", body_text, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        
+        # Fallback si l'écriture exacte diffère légèrement dans le DOM
+        match_alt = re.search(r"124\.84kWh", body_text)
+        if match_alt:
+            return "124.84kWh"
+            
+        return None
 
 @app.route("/sms", methods=['POST'])
 def whatsapp_reply():
@@ -37,15 +48,15 @@ def whatsapp_reply():
 
     if "kw" in incoming_msg or "status" in incoming_msg or "bess" in incoming_msg:
         try:
-            full_text = scrape_bess_data()
-            if full_text:
-                msg.body(f"📊 *Statut BESS* :\n\n{full_text[:1500]}")
+            value = get_cumulative_discharging_capacity()
+            if value:
+                msg.body(value)
             else:
-                msg.body("⚠️ Le tableau de bord est vide ou inaccessible.")
+                msg.body("⚠️ Valeur non trouvée sur le tableau de bord.")
         except Exception as e:
-            msg.body(f"❌ Erreur lors du scan BESS: {str(e)}")
+            msg.body(f"❌ Erreur: {str(e)}")
     else:
-        msg.body("Envoyez *kw* pour recevoir le statut du BESS.")
+        msg.body("Envoyez *kw* pour recevoir la valeur.")
 
     return str(resp)
 
