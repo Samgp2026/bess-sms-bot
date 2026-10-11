@@ -42,18 +42,20 @@ def get_real_bess_value():
             # Laisser l'application afficher le tableau
             page.wait_for_timeout(7000)
 
-            # Développer la section contenant les capacités cumulées
-
+            # Développer la section contenant les capacités 
+            
             page.get_by_text(
-                 "Cumulative Discharging Capacity",
+                 "Detailed parameters",
                  exact=True
-            ).first.wait_for(state="visible", timeout=15000)
+            ).click(timeout=15000)
 
-            # Attendre que le libellé soit visible après le clic
-            page.get_by_text(
-                "Cumulative Discharging Capacity",
-                exact=True
-            ).wait_for(timeout=15000)
+            page.wait_for_function(
+                 """() => [...document.querySelectorAll("span")].some(
+                 el => el.textContent.trim() === "Cumulative Discharging Capacity"
+                 && el.getClientRects().length > 0
+                 )""",
+                 timeout=15000
+            )
 
             body_text = page.locator("body").inner_text(timeout=15000)
 
