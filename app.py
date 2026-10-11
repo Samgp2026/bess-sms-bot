@@ -2,7 +2,7 @@ import os
 import re
 import threading
 
-from flask import Flask, request, Response
+from flask import Flask, Response, request
 from playwright.sync_api import sync_playwright
 from twilio.rest import Client
 from twilio.twiml.messaging_response import MessagingResponse
@@ -10,35 +10,53 @@ from twilio.twiml.messaging_response import MessagingResponse
 app = Flask(__name__)
 
 BESS_URL = "http://frp-ger.hhdzcesc.com:34470/#/real?label=Heap"
+
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_WHATSAPP_FROM = os.environ.get(
     "TWILIO_WHATSAPP_FROM",
-    "whatsapp:+14155238886"  # Sandbox seulement
+    "whatsapp:+14155238886"  # Numéro WhatsApp du Sandbox Twilio
 )
 
 
 def get_real_bess_value():
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox"]
+        )
+
         try:
-            chrome_ua = (f"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "f"(KHTML, like Gecko) Chrome/{browser.version} Safari/537.36")
+            chrome_ua = (
+                f"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                f"(KHTML, like Gecko) Chrome/{browser.version} Safari/537.36"
+            )
+
             page = browser.new_page(user_agent=chrome_ua)
-            page.on("pageerror",lambda err: print("BESS_PAGE_ERROR:", err, flush=True))
-            page.on("console",lambda msg: print("BESS_CONSOLE_ERROR:", msg.text, flush=True)if msg.type == "error" else None)
-            page.goto(BESS_URL, wait_until="domcontentloaded", timeout=30000)
+            page.goto(
+                BESS_URL,
+                wait_until="domcontentloaded",
+                timeout=30000
+            )
 
-            # Laissez le temps au tableau de bord de charger ses données.
+            # Laisser l'application afficher le tableau
             page.wait_for_timeout(7000)
-            body_text = page.locator("body").inner_text()
 
-            structure = page.evaluate("""() => ({ready: document.readyState,html: document.body?.innerHTML?.slice(0, 1200),canvases: document.querySelectorAll("canvas").length,iframes: [...document.querySelectorAll("iframe")].map(frame => frame.src)})""")
-            print("BESS_STRUCTURE:", structure, flush=True)
+            # Développer la section contenant les capacités cumulées
+            page.get_by_text(
+                "Detailed parameters",
+                exact=True
+            ).click(timeout=15000)
 
-            print("BESS_URL_FINALE:", page.url, flush=True)
-            print("BESS_TITRE:", page.title(), flush=True)
-            print("BESS_TEXTE:", repr(body_text[:3000]), flush=True)
-            
+            # Attendre que le libellé soit visible après le clic
+            page.get_by_text(
+                "Cumulative Discharging Capacity",
+                exact=True
+            ).wait_for(timeout=15000)
+
+            body_text = page.locator("body").inner_text(timeout=15000)
+
+            # Accepte par exemple 128.70kWh ou 128,70 kWh
             pattern = (
                 r"Cumulative\s+Discharging\s+Capacity\s*"
                 r"([0-9]+(?:[.,][0-9]+)?)\s*kWh"
@@ -47,7 +65,7 @@ def get_real_bess_value():
 
             if not match:
                 raise ValueError(
-                    "Le libellé ou sa valeur n’a pas été trouvé sur la page."
+                    "Le libellé ou la valeur de décharge est introuvable."
                 )
 
             value = match.group(1).replace(",", ".")
@@ -58,20 +76,24 @@ def get_real_bess_value():
 
 
 def scrape_and_send(to_number):
-    client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-
     try:
-        value = get_real_bess_value()
-        message = f"La capacité cumulée de décharge est : {value}"
-    except Exception as exc:
-        app.logger.exception("Échec de lecture du tableau de bord")
-        message = f"Impossible de lire la valeur du site : {exc}"
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
-    client.messages.create(
-        body=message,
-        from_=TWILIO_WHATSAPP_FROM,
-        to=to_number
-    )
+        try:
+            value = get_real_bess_value()
+            message = f"La capacité cumulée de décharge est : {value}"
+        except Exception as exc:
+            app.logger.exception("Échec de lecture du tableau de bord")
+            message = f"Impossible de lire la valeur du site : {exc}"
+
+        client.messages.create(
+            body=message,
+            from_=TWILIO_WHATSAPP_FROM,
+            to=to_number
+        )
+
+    except Exception:
+        app.logger.exception("Échec de l'envoi du message WhatsApp")
 
 
 @app.route("/sms", methods=["POST"])
@@ -85,7 +107,10 @@ def whatsapp_reply():
         if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
             response.message("Configuration Twilio manquante sur le serveur.")
         else:
-            response.message("Lecture en cours, je vous envoie la valeur dans un instant.")
+            response.message(
+                "Lecture en cours, je vous envoie la valeur dans un instant."
+            )
+
             threading.Thread(
                 target=scrape_and_send,
                 args=(from_number,),
@@ -103,4 +128,7 @@ def health_check():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000))
+    )
