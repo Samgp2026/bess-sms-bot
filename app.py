@@ -28,6 +28,9 @@ def get_real_bess_value():
             # Laissez le temps au tableau de bord de charger ses données.
             page.wait_for_timeout(7000)
             body_text = page.locator("body").inner_text()
+            app.logger.info("URL finale : %s", page.url)
+            app.logger.info("Titre de la page : %s", page.title())
+            app.logger.info("Texte lu par Playwright : %r", body_text[:3000])
 
             pattern = (
                 r"Cumulative\s+Discharging\s+Capacity\s*"
