@@ -22,7 +22,8 @@ def get_real_bess_value():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         try:
-            page = browser.new_page()
+            chrome_ua = (f"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "f"(KHTML, like Gecko) Chrome/{browser.version} Safari/537.36")
+            page = browser.new_page(user_agent=chrome_ua)
             page.goto(BESS_URL, wait_until="domcontentloaded", timeout=30000)
 
             # Laissez le temps au tableau de bord de charger ses données.
