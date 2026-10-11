@@ -1,81 +1,96 @@
 import os
-import threading
-import subprocess
 import re
-from flask import Flask, request
-from twilio.twiml.messaging_response import MessagingResponse
-from twilio.rest import Client
+import threading
+
+from flask import Flask, request, Response
 from playwright.sync_api import sync_playwright
+from twilio.rest import Client
+from twilio.twiml.messaging_response import MessagingResponse
 
 app = Flask(__name__)
 
 BESS_URL = "http://frp-ger.hhdzcesc.com:34470/#/real?label=Heap"
-
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
+TWILIO_WHATSAPP_FROM = os.environ.get(
+    "TWILIO_WHATSAPP_FROM",
+    "whatsapp:+14155238886"  # Sandbox seulement
+)
 
-# S'assurer que Chromium est installé au démarrage
-try:
-    subprocess.run(["python", "-m", "playwright", "install", "chromium"], check=True)
-except Exception as e:
-    print(f"Erreur installation Playwright: {e}")
 
 def get_real_bess_value():
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox"]
-            )
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
             page = browser.new_page()
-            page.goto(BESS_URL, timeout=30000)
-            # Attente suffisante pour que le JavaScript charge les données réelles
+            page.goto(BESS_URL, wait_until="domcontentloaded", timeout=30000)
+
+            # Laissez le temps au tableau de bord de charger ses données.
             page.wait_for_timeout(7000)
-            body_text = page.inner_text("body")
+            body_text = page.locator("body").inner_text()
+
+            pattern = (
+                r"Cumulative\s+Discharging\s+Capacity\s*"
+                r"([0-9]+(?:[.,][0-9]+)?)\s*kWh"
+            )
+            match = re.search(pattern, body_text, re.IGNORECASE)
+
+            if not match:
+                raise ValueError(
+                    "Le libellé ou sa valeur n’a pas été trouvé sur la page."
+                )
+
+            value = match.group(1).replace(",", ".")
+            return f"{value} kWh"
+
+        finally:
             browser.close()
 
-        # Extraction dynamique de la valeur réelle de la page
-        match = re.search(r"Cumulative Discharging Capacity\s*([0-9\.]+kWh)", body_text, re.IGNORECASE)
-        if match:
-            return match.group(1)
-        
-        # Recherche alternative d'un format kWh dans la page si le texte exact diffère
-        match_alt = re.search(r"([0-9]+\.[0-9]+kWh)", body_text)
-        if match_alt:
-            return match_alt.group(1)
-            
-        return "Valeur non détectée sur la page"
-    except Exception as e:
-        return f"Erreur de scraping: {str(e)}"
 
-def async_scrape_and_send(to_number, client):
-    real_value = get_real_bess_value()
+def scrape_and_send(to_number):
+    client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+
+    try:
+        value = get_real_bess_value()
+        message = f"La capacité cumulée de décharge est : {value}"
+    except Exception as exc:
+        app.logger.exception("Échec de lecture du tableau de bord")
+        message = f"Impossible de lire la valeur du site : {exc}"
+
     client.messages.create(
-        body=real_value,
-        from_='whatsapp:+14155238886',
+        body=message,
+        from_=TWILIO_WHATSAPP_FROM,
         to=to_number
     )
 
-@app.route("/sms", methods=['POST'])
+
+@app.route("/sms", methods=["POST"])
 def whatsapp_reply():
     incoming_msg = request.form.get("Body", "").strip().lower()
-    from_number = request.form.get("From")
-    
-    resp = MessagingResponse()
+    from_number = request.form.get("From", "")
 
-    if "kw" in incoming_msg or "status" in incoming_msg or "bess" in incoming_msg:
-        # Réponse immédiate pour valider le webhook Twilio
-        resp.message("⏳ Lecture en cours sur la page...")
-        
-        # Lancement du vrai scraping en arrière-plan
-        if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
-            client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-            thread = threading.Thread(target=async_scrape_and_send, args=(from_number, client))
-            thread.start()
+    response = MessagingResponse()
+
+    if incoming_msg in {"kw", "status", "bess"}:
+        if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
+            response.message("Configuration Twilio manquante sur le serveur.")
+        else:
+            response.message("Lecture en cours, je vous envoie la valeur dans un instant.")
+            threading.Thread(
+                target=scrape_and_send,
+                args=(from_number,),
+                daemon=True
+            ).start()
     else:
-        resp.message("Envoyez *kw* pour recevoir la valeur.")
+        response.message("Envoyez « kw » pour recevoir la valeur.")
 
-    return str(resp)
+    return Response(str(response), mimetype="application/xml")
+
+
+@app.route("/", methods=["GET"])
+def health_check():
+    return "Application active", 200
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
