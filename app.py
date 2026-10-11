@@ -24,12 +24,17 @@ def get_real_bess_value():
         try:
             chrome_ua = (f"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "f"(KHTML, like Gecko) Chrome/{browser.version} Safari/537.36")
             page = browser.new_page(user_agent=chrome_ua)
+            page.on("pageerror",lambda err: print("BESS_PAGE_ERROR:", err, flush=True))
+            page.on("console",lambda msg: print("BESS_CONSOLE_ERROR:", msg.text, flush=True)if msg.type == "error" else None)
             page.goto(BESS_URL, wait_until="domcontentloaded", timeout=30000)
 
             # Laissez le temps au tableau de bord de charger ses données.
             page.wait_for_timeout(7000)
             body_text = page.locator("body").inner_text()
-            
+
+            structure = page.evaluate("""() => ({ready: document.readyState,html: document.body?.innerHTML?.slice(0, 1200),canvases: document.querySelectorAll("canvas").length,iframes: [...document.querySelectorAll("iframe")].map(frame => frame.src)})""")
+            print("BESS_STRUCTURE:", structure, flush=True)
+
             print("BESS_URL_FINALE:", page.url, flush=True)
             print("BESS_TITRE:", page.title(), flush=True)
             print("BESS_TEXTE:", repr(body_text[:3000]), flush=True)
