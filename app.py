@@ -1,4 +1,5 @@
 import os
+import subprocess
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
 from playwright.sync_api import sync_playwright
@@ -7,9 +8,18 @@ app = Flask(__name__)
 
 BESS_URL = "http://frp-ger.hhdzcesc.com:34470/#/dashboard"
 
+# S'assurer que le navigateur Chromium est bien installé
+try:
+    subprocess.run(["python", "-m", "playwright", "install", "chromium"], check=True)
+except Exception as e:
+    print(f"Erreur installation Playwright: {e}")
+
 def scrape_bess_data():
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox"]
+        )
         page = browser.new_page()
         page.goto(BESS_URL, timeout=30000)
         page.wait_for_timeout(5000)
@@ -26,7 +36,6 @@ def whatsapp_reply():
     if "kw" in incoming_msg or "status" in incoming_msg or "bess" in incoming_msg:
         try:
             full_text = scrape_bess_data()
-            # Envoi du statut au format WhatsApp
             msg.body(f"📊 *Statut BESS* :\n\n{full_text[:500]}")
         except Exception as e:
             msg.body(f"❌ Erreur lors du scan BESS: {str(e)}")
