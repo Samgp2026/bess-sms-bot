@@ -61,7 +61,7 @@ def get_real_bess_value():
             )
 
             page.wait_for_function(
-                 """() => [...document.querySelectorAll("span")].some(
+                 """() => [...document.querySelectorAll("span, button, a, div")].some(
                  el => el.textContent.trim() === "Cumulative Discharging Capacity"
                  && el.getClientRects().length > 0
                  )""",
