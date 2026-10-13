@@ -18,18 +18,32 @@ TWILIO_WHATSAPP_FROM = os.environ.get(
     "whatsapp:+14155238886"
 )
 
-# JavaScript permettant de vérifier si un texte est visible.
+# Libellés possibles pour « Detailed parameters »
+DETAIL_LABELS = [
+    "Detailed parameters",
+    "Paramètres détaillés",
+    "详细参数"
+]
+
+# Libellés possibles pour « Cumulative Discharging Capacity »
+CAPACITY_LABELS = [
+    "Cumulative Discharging Capacity",
+    "Capacité de décharge cumulée",
+    "累计放电电量"
+]
+
+# Recherche un libellé visible dans la page.
 VISIBLE_TEXT_JS = (
-    "(label) => [...document.querySelectorAll('span, button, a, div')].some("
-    "el => el.textContent.trim() === label && "
+    "(labels) => [...document.querySelectorAll('span, button, a, div')].some("
+    "el => labels.includes(el.textContent.trim()) && "
     "el.getClientRects().length > 0)"
 )
 
-# JavaScript permettant de cliquer sur un texte visible.
+# Clique sur le premier élément visible correspondant à un libellé.
 CLICK_TEXT_JS = (
-    "(label) => { "
+    "(labels) => { "
     "const el = [...document.querySelectorAll('span, button, a, div')].find("
-    "item => item.textContent.trim() === label && "
+    "item => labels.includes(item.textContent.trim()) && "
     "item.getClientRects().length > 0); "
     "if (!el) return false; "
     "el.click(); "
@@ -60,45 +74,47 @@ def get_real_bess_value():
                 timeout=45000
             )
 
-            # Laisser le tableau de bord commencer à charger.
+            # Laisser le tableau de bord charger.
             page.wait_for_timeout(8000)
 
-            # Si la capacité n'est pas déjà visible, ouvrir les paramètres.
+            # Vérifier si la capacité est déjà visible.
             capacity_visible = page.evaluate(
                 VISIBLE_TEXT_JS,
-                "Cumulative Discharging Capacity"
+                CAPACITY_LABELS
             )
 
+            # Sinon, ouvrir la section des paramètres détaillés.
             if not capacity_visible:
                 page.wait_for_function(
                     VISIBLE_TEXT_JS,
-                    arg="Detailed parameters",
+                    arg=DETAIL_LABELS,
                     timeout=30000
                 )
 
                 clicked = page.evaluate(
                     CLICK_TEXT_JS,
-                    "Detailed parameters"
+                    DETAIL_LABELS
                 )
 
                 if not clicked:
                     raise ValueError(
-                        "La section « Detailed parameters » "
-                        "n'est pas visible."
+                        "La section détaillée n'est pas visible."
                     )
 
-            # Attendre que le libellé de la capacité apparaisse.
+            # Attendre le libellé de la capacité en chinois, français ou anglais.
             page.wait_for_function(
                 VISIBLE_TEXT_JS,
-                arg="Cumulative Discharging Capacity",
+                arg=CAPACITY_LABELS,
                 timeout=30000
             )
 
             body_text = page.locator("body").inner_text(timeout=15000)
 
-            # Accepte par exemple 128.70 kWh ou 128,70 kWh.
+            # Accepte, par exemple, « 累计放电电量 169.74kWh ».
             pattern = (
-                r"Cumulative\s+Discharging\s+Capacity\s*"
+                r"(?:Cumulative\s+Discharging\s+Capacity|"
+                r"Capacité\s+de\s+décharge\s+cumulée|"
+                r"累计放电电量)\s*"
                 r"([0-9]+(?:[.,][0-9]+)?)\s*kWh"
             )
 
@@ -106,8 +122,8 @@ def get_real_bess_value():
 
             if not match:
                 raise ValueError(
-                    "Le libellé ou la valeur de décharge "
-                    "est introuvable sur la page."
+                    "La valeur de décharge est introuvable "
+                    "dans le texte visible."
                 )
 
             value = match.group(1).replace(",", ".")
@@ -131,8 +147,9 @@ def scrape_and_send(to_number):
                 f"{value}"
             )
         except Exception:
+            # Le détail de l'erreur reste dans les logs Render.
             app.logger.exception(
-                "Échec de lecture du tableau de bord"
+                "Échec de lecture du tableau de bord BESS"
             )
             message = (
                 "Der Wert konnte nicht gelesen werden. "
