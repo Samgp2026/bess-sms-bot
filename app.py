@@ -39,15 +39,26 @@ def get_real_bess_value():
                 timeout=30000
             )
 
-            # Laisser l'application afficher le tableau
-            page.wait_for_timeout(7000)
-
-            # Développer la section contenant les capacités 
             
-            page.get_by_text(
-                 "Detailed parameters",
-                 exact=True
-            ).click(timeout=15000)
+
+            page.wait_for_timeout(10000)
+
+            clicked = page.evaluate("""() => {
+                          const el = [...document.querySelectorAll("span, button, a, div")]
+                         .find(e =>
+                         e.textContent.trim() === "Detailed parameters" &&
+                         e.getClientRects().length > 0
+                         );
+                         if (!el) return false;
+                         el.click();
+                         return true;
+                         }""")
+
+            if not clicked:
+            raise ValueError(
+                        "La section « Detailed parameters » n'est pas visible. "
+                        "La page n'a peut-être pas fini de charger."
+            )
 
             page.wait_for_function(
                  """() => [...document.querySelectorAll("span")].some(
