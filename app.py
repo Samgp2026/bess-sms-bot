@@ -1,4 +1,3 @@
-
 import os
 import re
 import threading
@@ -19,6 +18,25 @@ TWILIO_WHATSAPP_FROM = os.environ.get(
     "whatsapp:+14155238886"
 )
 
+# JavaScript permettant de vérifier si un texte est visible.
+VISIBLE_TEXT_JS = (
+    "(label) => [...document.querySelectorAll('span, button, a, div')].some("
+    "el => el.textContent.trim() === label && "
+    "el.getClientRects().length > 0)"
+)
+
+# JavaScript permettant de cliquer sur un texte visible.
+CLICK_TEXT_JS = (
+    "(label) => { "
+    "const el = [...document.querySelectorAll('span, button, a, div')].find("
+    "item => item.textContent.trim() === label && "
+    "item.getClientRects().length > 0); "
+    "if (!el) return false; "
+    "el.click(); "
+    "return true; "
+    "}"
+)
+
 
 def get_real_bess_value():
     with sync_playwright() as p:
@@ -28,7 +46,13 @@ def get_real_bess_value():
         )
 
         try:
-            page = browser.new_page()
+            chrome_ua = (
+                "Mozilla/5.0 (X11; Linux x86_64) "
+                "AppleWebKit/537.36 "
+                f"(KHTML, like Gecko) Chrome/{browser.version} Safari/537.36"
+            )
+
+            page = browser.new_page(user_agent=chrome_ua)
 
             page.goto(
                 BESS_URL,
@@ -36,59 +60,26 @@ def get_real_bess_value():
                 timeout=45000
             )
 
-            # Laisser l'application EMS commencer à charger ses données.
+            # Laisser le tableau de bord commencer à charger.
             page.wait_for_timeout(8000)
 
-            # Vérifier si le libellé de la capacité est déjà visible.
-            capacity_visible = page.evaluate(r"""() => {
-                const normalize = text => text.replace(/\s+/g, " ").trim();
-                return [...document.querySelectorAll("span, button, a, div")].some(
-                    el =>
-                        normalize(el.textContent) ===
-                            "Cumulative Discharging Capacity" &&
-                        el.getClientRects().length > 0
-                );
-            }""")
+            # Si la capacité n'est pas déjà visible, ouvrir les paramètres.
+            capacity_visible = page.evaluate(
+                VISIBLE_TEXT_JS,
+                "Cumulative Discharging Capacity"
+            )
 
-            # Si la capacité n'est pas encore visible, ouvrir les paramètres détaillés.
             if not capacity_visible:
                 page.wait_for_function(
-                    r"""() => {
-                        const normalize = text =>
-                            text.replace(/\s+/g, " ").trim();
-
-                        return [...document.querySelectorAll(
-                            "span, button, a, div"
-                        )].some(
-                            el =>
-                                normalize(el.textContent) ===
-                                    "Detailed parameters" &&
-                                el.getClientRects().length > 0
-                        );
-                    }""",
+                    VISIBLE_TEXT_JS,
+                    arg="Detailed parameters",
                     timeout=30000
                 )
 
-                clicked = page.evaluate(r"""() => {
-                    const normalize = text =>
-                        text.replace(/\s+/g, " ").trim();
-
-                    const el = [...document.querySelectorAll(
-                        "span, button, a, div"
-                    )].find(
-                        item =>
-                            normalize(item.textContent) ===
-                                "Detailed parameters" &&
-                            item.getClientRects().length > 0
-                    );
-
-                    if (!el) {
-                        return false;
-                    }
-
-                    el.click();
-                    return true;
-                }""")
+                clicked = page.evaluate(
+                    CLICK_TEXT_JS,
+                    "Detailed parameters"
+                )
 
                 if not clicked:
                     raise ValueError(
@@ -96,27 +87,16 @@ def get_real_bess_value():
                         "n'est pas visible."
                     )
 
-            # Attendre que le libellé de capacité soit visible après le clic.
+            # Attendre que le libellé de la capacité apparaisse.
             page.wait_for_function(
-                r"""() => {
-                    const normalize = text =>
-                        text.replace(/\s+/g, " ").trim();
-
-                    return [...document.querySelectorAll(
-                        "span, button, a, div"
-                    )].some(
-                        el =>
-                            normalize(el.textContent) ===
-                                "Cumulative Discharging Capacity" &&
-                            el.getClientRects().length > 0
-                    );
-                }""",
+                VISIBLE_TEXT_JS,
+                arg="Cumulative Discharging Capacity",
                 timeout=30000
             )
 
             body_text = page.locator("body").inner_text(timeout=15000)
 
-            # Accepte 128.70 kWh ou 128,70 kWh.
+            # Accepte par exemple 128.70 kWh ou 128,70 kWh.
             pattern = (
                 r"Cumulative\s+Discharging\s+Capacity\s*"
                 r"([0-9]+(?:[.,][0-9]+)?)\s*kWh"
@@ -139,7 +119,10 @@ def get_real_bess_value():
 
 def scrape_and_send(to_number):
     try:
-        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        client = Client(
+            TWILIO_ACCOUNT_SID,
+            TWILIO_AUTH_TOKEN
+        )
 
         try:
             value = get_real_bess_value()
@@ -148,7 +131,9 @@ def scrape_and_send(to_number):
                 f"{value}"
             )
         except Exception:
-            app.logger.exception("Échec de lecture du tableau de bord")
+            app.logger.exception(
+                "Échec de lecture du tableau de bord"
+            )
             message = (
                 "Der Wert konnte nicht gelesen werden. "
                 "Bitte versuchen Sie es später erneut."
